@@ -1,0 +1,6 @@
+# TCL表格比对系统 - 局域网版本依赖
+Flask==2.3.3
+flask-cors==4.0.0
+requests==2.31.0
+openpyxl==3.1.2
+PyQt5==5.15.9

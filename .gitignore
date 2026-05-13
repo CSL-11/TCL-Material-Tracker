@@ -1,0 +1,26 @@
+# Build output
+dist/
+build/
+*.spec.bak
+Output/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# 运行时数据（配置缓存、数据库）
+data/
+*.db
+*.json
+!requirements*.json
