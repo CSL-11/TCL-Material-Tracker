@@ -14,8 +14,6 @@ TCL表格比对系统 - 服务器端 (Flask RESTful API)
 
 import os
 import sys
-import json
-import hashlib
 from flask import Flask, request, jsonify, send_file
 from flask_cors import CORS
 from datetime import datetime
@@ -23,7 +21,6 @@ import argparse
 
 # 导入数据库管理模块
 from server_db import ServerDatabase
-from version import __version__
 
 app = Flask(__name__)
 CORS(app)  # 允许跨域请求
@@ -39,7 +36,7 @@ def health_check():
     return jsonify({
         'status': 'ok',
         'server': 'TCL表格比对系统服务器',
-        'version': __version__,
+        'version': '1.0.0',
         'timestamp': datetime.now().isoformat()
     })
 
@@ -52,39 +49,6 @@ def get_statistics():
 
 # ==================== 数据库管理 API ====================
 
-def get_db_data_response(database):
-    headers, data = database.load_db_data()
-    return {
-        'success': True,
-        'headers': headers,
-        'data': data,
-        'count': len(data)
-    }
-
-
-def save_db_data_response(database, payload, client_id):
-    payload = payload or {}
-    headers = payload.get('headers', [])
-    rows = payload.get('data', [])
-    database.save_db_data(headers, rows)
-    database.add_operation_log(client_id, '保存数据库数据', f'保存了 {len(rows)} 条记录')
-    return {
-        'success': True,
-        'message': f'成功保存 {len(rows)} 条记录'
-    }
-
-
-def delete_db_data_response(database, payload, client_id):
-    payload = payload or {}
-    item_ids = payload.get('ids')
-    database.delete_db_data(item_ids)
-    database.add_operation_log(client_id, '删除数据库数据', f'删除了 {len(item_ids) if item_ids else "全部"} 条记录')
-    return {
-        'success': True,
-        'message': '删除成功'
-    }
-
-
 @app.route('/api/db/data', methods=['GET', 'POST', 'DELETE'])
 def handle_db_data():
     """
@@ -95,12 +59,30 @@ def handle_db_data():
     DELETE - 清空数据
     """
     if request.method == 'GET':
-        return jsonify(get_db_data_response(db))
+        headers, data = db.load_db_data()
+        return jsonify({
+            'success': True,
+            'headers': headers,
+            'data': data,
+            'count': len(data)
+        })
 
     elif request.method == 'POST':
         try:
+            data = request.json
+            headers = data.get('headers', [])
+            rows = data.get('data', [])
+
+            db.save_db_data(headers, rows)
+
+            # 记录操作日志
             client_id = request.headers.get('X-Client-ID', 'unknown')
-            return jsonify(save_db_data_response(db, request.json, client_id))
+            db.add_operation_log(client_id, '保存数据库数据', f'保存了 {len(rows)} 条记录')
+
+            return jsonify({
+                'success': True,
+                'message': f'成功保存 {len(rows)} 条记录'
+            })
         except Exception as e:
             return jsonify({
                 'success': False,
@@ -109,8 +91,18 @@ def handle_db_data():
 
     elif request.method == 'DELETE':
         try:
+            data = request.json or {}
+            item_ids = data.get('ids')  # 可选：删除指定的ID列表
+
+            db.delete_db_data(item_ids)
+
             client_id = request.headers.get('X-Client-ID', 'unknown')
-            return jsonify(delete_db_data_response(db, request.json, client_id))
+            db.add_operation_log(client_id, '删除数据库数据', f'删除了 {len(item_ids) if item_ids else "全部"} 条记录')
+
+            return jsonify({
+                'success': True,
+                'message': '删除成功'
+            })
         except Exception as e:
             return jsonify({
                 'success': False,
@@ -118,39 +110,6 @@ def handle_db_data():
             }), 500
 
 # ==================== 批量导入 API ====================
-
-def get_batch_data_response(database):
-    headers, data = database.load_batch_import_data()
-    return {
-        'success': True,
-        'headers': headers,
-        'data': data,
-        'count': len(data)
-    }
-
-
-def save_batch_data_response(database, payload, client_id):
-    payload = payload or {}
-    headers = payload.get('headers', [])
-    rows = payload.get('data', [])
-    database.save_batch_import_data(headers, rows)
-    database.add_operation_log(client_id, '保存批量导入数据', f'保存了 {len(rows)} 条记录')
-    return {
-        'success': True,
-        'message': f'成功保存 {len(rows)} 条记录'
-    }
-
-
-def delete_batch_data_response(database, payload, client_id):
-    payload = payload or {}
-    indices = payload.get('indices')
-    database.delete_batch_import_items(indices)
-    database.add_operation_log(client_id, '删除批量导入数据', f'删除了 {len(indices) if indices else "全部"} 条记录')
-    return {
-        'success': True,
-        'message': '删除成功'
-    }
-
 
 @app.route('/api/batch/data', methods=['GET', 'POST', 'DELETE'])
 def handle_batch_data():
@@ -162,12 +121,29 @@ def handle_batch_data():
     DELETE - 删除数据（支持部分删除）
     """
     if request.method == 'GET':
-        return jsonify(get_batch_data_response(db))
+        headers, data = db.load_batch_import_data()
+        return jsonify({
+            'success': True,
+            'headers': headers,
+            'data': data,
+            'count': len(data)
+        })
 
     elif request.method == 'POST':
         try:
+            data = request.json
+            headers = data.get('headers', [])
+            rows = data.get('data', [])
+
+            db.save_batch_import_data(headers, rows)
+
             client_id = request.headers.get('X-Client-ID', 'unknown')
-            return jsonify(save_batch_data_response(db, request.json, client_id))
+            db.add_operation_log(client_id, '保存批量导入数据', f'保存了 {len(rows)} 条记录')
+
+            return jsonify({
+                'success': True,
+                'message': f'成功保存 {len(rows)} 条记录'
+            })
         except Exception as e:
             return jsonify({
                 'success': False,
@@ -176,8 +152,18 @@ def handle_batch_data():
 
     elif request.method == 'DELETE':
         try:
+            data = request.json or {}
+            indices = data.get('indices')  # 可选：删除指定的索引列表
+
+            db.delete_batch_import_items(indices)
+
             client_id = request.headers.get('X-Client-ID', 'unknown')
-            return jsonify(delete_batch_data_response(db, request.json, client_id))
+            db.add_operation_log(client_id, '删除批量导入数据', f'删除了 {len(indices) if indices else "全部"} 条记录')
+
+            return jsonify({
+                'success': True,
+                'message': '删除成功'
+            })
         except Exception as e:
             return jsonify({
                 'success': False,
@@ -185,25 +171,6 @@ def handle_batch_data():
             }), 500
 
 # ==================== 配置管理 API ====================
-
-def get_config_response(database, key):
-    value = database.load_config(key)
-    return {
-        'success': True,
-        'key': key,
-        'value': value
-    }
-
-
-def save_config_response(database, key, payload):
-    payload = payload or {}
-    value = payload.get('value')
-    database.save_config(key, value)
-    return {
-        'success': True,
-        'message': f'配置 [{key}] 已更新'
-    }
-
 
 @app.route('/api/config/<key>', methods=['GET', 'POST'])
 def handle_config(key):
@@ -214,11 +181,22 @@ def handle_config(key):
     POST - 设置配置值
     """
     if request.method == 'GET':
-        return jsonify(get_config_response(db, key))
+        value = db.load_config(key)
+        return jsonify({
+            'success': True,
+            'key': key,
+            'value': value
+        })
 
     elif request.method == 'POST':
         try:
-            return jsonify(save_config_response(db, key, request.json))
+            value = request.json.get('value')
+            db.save_config(key, value)
+
+            return jsonify({
+                'success': True,
+                'message': f'配置 [{key}] 已更新'
+            })
         except Exception as e:
             return jsonify({
                 'success': False,
@@ -299,135 +277,6 @@ def download_file(filename):
         return jsonify({'success': False, 'error': '文件不存在'}), 404
 
     return send_file(filepath, as_attachment=True)
-
-
-# ==================== 自动更新 API ====================
-
-def _parse_version(v):
-    """解析版本号字符串为元组，用于比较"""
-    try:
-        return tuple(map(int, v.split('.')))
-    except (ValueError, AttributeError):
-        return (0, 0, 0)
-
-def _get_updates_dir():
-    """获取更新包目录"""
-    updates_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'updates')
-    if not os.path.exists(updates_dir):
-        os.makedirs(updates_dir)
-    return updates_dir
-
-def _load_manifest():
-    """加载更新清单"""
-    manifest_path = os.path.join(_get_updates_dir(), 'manifest.json')
-    if os.path.exists(manifest_path):
-        with open(manifest_path, 'r', encoding='utf-8') as f:
-            return json.load(f)
-    return {'versions': []}
-
-@app.route('/api/update/check', methods=['GET'])
-def check_update():
-    """
-    检查是否有新版本
-
-    参数: current_version - 客户端当前版本号
-    响应: {
-        has_update: bool,
-        latest_version: str,
-        update_url: str,
-        changelog: str,
-        file_size: int
-    }
-    """
-    current_version = request.args.get('current_version', '0.0.0')
-    manifest = _load_manifest()
-    versions = manifest.get('versions', [])
-
-    if not versions:
-        return jsonify({
-            'has_update': False,
-            'latest_version': current_version,
-            'message': '暂无更新'
-        })
-
-    # 获取最新版本
-    latest = max(versions, key=lambda v: _parse_version(v.get('version', '0.0.0')))
-    latest_version = latest.get('version', '0.0.0')
-
-    # 比较版本
-    if _parse_version(latest_version) > _parse_version(current_version):
-        update_file = latest.get('filename', f'update_{latest_version}.zip')
-        update_path = os.path.join(_get_updates_dir(), update_file)
-        file_size = os.path.getsize(update_path) if os.path.exists(update_path) else 0
-
-        return jsonify({
-            'has_update': True,
-            'latest_version': latest_version,
-            'update_url': f'/api/update/download/{latest_version}',
-            'changelog': latest.get('changelog', ''),
-            'file_size': file_size,
-            'files': latest.get('files', [])
-        })
-
-    return jsonify({
-        'has_update': False,
-        'latest_version': current_version,
-        'message': '已是最新版本'
-    })
-
-@app.route('/api/update/download/<version>', methods=['GET'])
-def download_update(version):
-    """下载指定版本的更新包"""
-    manifest = _load_manifest()
-    versions = manifest.get('versions', [])
-
-    # 查找对应版本
-    target = None
-    for v in versions:
-        if v.get('version') == version:
-            target = v
-            break
-
-    if not target:
-        return jsonify({'success': False, 'error': f'版本 {version} 不存在'}), 404
-
-    update_file = target.get('filename', f'update_{version}.zip')
-    update_path = os.path.join(_get_updates_dir(), update_file)
-
-    if not os.path.exists(update_path):
-        return jsonify({'success': False, 'error': '更新包文件不存在'}), 404
-
-    return send_file(update_path, as_attachment=True, download_name=f'update_{version}.zip')
-
-@app.route('/api/sync/check', methods=['GET'])
-def sync_check():
-    """轻量级同步检查 - 返回数据变更时间戳，客户端用于检测是否需要刷新"""
-    stats = db.get_statistics()
-    return jsonify({
-        'last_db_update': stats.get('last_db_update', '从未'),
-        'db_data_count': stats.get('db_data_count', 0),
-        'batch_import_count': stats.get('batch_import_count', 0),
-    })
-
-
-@app.route('/api/update/changelog', methods=['GET'])
-def get_changelog():
-    """获取更新日志"""
-    manifest = _load_manifest()
-    versions = manifest.get('versions', [])
-
-    # 按版本号降序排列
-    sorted_versions = sorted(versions, key=lambda v: _parse_version(v.get('version', '0.0.0')), reverse=True)
-
-    return jsonify({
-        'success': True,
-        'changelog': [{
-            'version': v.get('version'),
-            'date': v.get('date'),
-            'changelog': v.get('changelog'),
-            'files': v.get('files', [])
-        } for v in sorted_versions]
-    })
 
 
 # ==================== 错误处理 ====================

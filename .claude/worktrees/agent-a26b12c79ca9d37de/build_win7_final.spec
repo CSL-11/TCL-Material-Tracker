@@ -11,8 +11,8 @@ PyInstaller 配置文件 - TCL表格比对系统（Windows 7 终极兼容版）
 - 包含运行时修复脚本（解决 pyimod02_importers 错误）
 - 关闭 UPX 压缩（某些 Win7 环境 UPX 有问题）
 
-使用方法（从项目根目录运行）:
-    D:\py\python38\python.exe -m PyInstaller scripts\build_win7_final.spec
+使用方法:
+    D:\py\python38\python.exe -m PyInstaller build_win7_final.spec
 
 生成文件:
     dist/TCL表格比对_Win7/ (约80-120MB)
@@ -25,21 +25,9 @@ from PyInstaller.utils.hooks import collect_data_files, collect_submodules
 # ==================== 基础配置 ====================
 
 block_cipher = None
-# spec 文件在 scripts/ 目录，项目根目录是上一级
-work_dir = os.path.dirname(os.path.dirname(os.path.abspath(SPEC)))
+work_dir = os.path.dirname(os.path.abspath(SPEC))
 
 app_name = 'TCL表格比对'
-
-# 从 version.py 读取版本号
-def get_version():
-    version_file = os.path.join(work_dir, 'version.py')
-    with open(version_file, 'r', encoding='utf-8') as f:
-        for line in f:
-            if line.startswith('__version__'):
-                return line.split('=')[1].strip().strip('"').strip("'")
-    return '1.0.0'
-
-app_version = get_version()
 
 # ==================== 数据文件 ====================
 
@@ -47,13 +35,11 @@ datas = []
 datas += collect_data_files('PyQt5')
 datas += collect_data_files('openpyxl')
 
-# 数据文件（配置缓存在 data/ 目录，图标在 resources/ 目录）
+# 数据文件
 data_files = [
-    ('data/db_cache.json', '.'),
-    ('data/batch_import_cache.json', '.'),
-    ('data/output_dir_config.json', '.'),
-    ('resources/icon.png', '.'),
-    ('resources/icon.ico', '.'),
+    ('db_cache.json', '.'),
+    ('batch_import_cache.json', '.'),
+    ('output_dir_config.json', '.'),
 ]
 
 for src, dst in data_files:
@@ -80,7 +66,6 @@ hiddenimports = [
     'excel_processor',
     'network_manager',
     'server_db',
-    'version',
 
     # Excel处理
     'openpyxl',
@@ -163,7 +148,7 @@ a = Analysis(
     hookspath=[],
     hooksconfig={},
     # 关键：添加运行时修复脚本
-    runtime_hooks=[os.path.join(work_dir, 'scripts', 'runtime_fix_win7.py')],
+    runtime_hooks=[os.path.join(work_dir, 'runtime_fix_win7.py')],
     excludes=excludes,
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
@@ -186,8 +171,8 @@ exe = EXE(
     strip=False,
     upx=False,  # 关闭UPX压缩（某些Win7环境UPX有问题）
     console=False,
-    icon=os.path.join(work_dir, 'resources', 'icon.ico'),
-    version=None,  # 版本号已通过 version.py 管理，EXE资源暂不嵌入
+    icon=None,
+    version=None,
 )
 
 # ==================== 收集文件 ====================

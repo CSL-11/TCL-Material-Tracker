@@ -98,6 +98,34 @@ class ExcelProcessorWorkflowTests(unittest.TestCase):
         self.assertEqual(8, db_records[0]['总缺料'])
         self.assertEqual('透明商标类', db_records[0]['分类'])
 
+    def test_normalize_row_maps_alias_to_standard_field(self):
+        row = {'物料号': 'A001', '总缺料（差异数部分标红）': 100}
+        result = self.processor.normalize_row(row)
+        self.assertEqual(100, result.get('总缺料'))
+
+    def test_normalize_row_maps_material_code_alias(self):
+        row = {'物料编码': 'A002', '总缺料': 200}
+        result = self.processor.normalize_row(row)
+        self.assertEqual('A002', result.get('物料号'))
+
+    def test_normalize_row_preserves_standard_field(self):
+        row = {'物料号': 'A003', '总缺料': 300}
+        result = self.processor.normalize_row(row)
+        self.assertEqual(300, result.get('总缺料'))
+
+    def test_compare_with_alias_fields(self):
+        yesterday_data = [
+            {'物料号': 'A001', '销售订单': 'SO1', '销售订单行号': '10', '内需单号': 'N1', '总缺料': 4},
+        ]
+        today_data = [
+            {'物料号': 'A001', '销售订单': 'SO1', '销售订单行号': '10', '内需单号': 'N1', '总缺料（差异数部分标红）': 8},
+        ]
+        # 模拟 read_excel_with_color 的规范化行为
+        today_data_normalized = [self.processor.normalize_row(row) for row in today_data]
+        diff_data = self.processor.compare_and_get_diff(yesterday_data, today_data_normalized)
+        self.assertEqual(4, diff_data[0]['变化量'])
+        self.assertEqual(8, diff_data[0]['今天总缺料'])
+
 
 if __name__ == '__main__':
     unittest.main()

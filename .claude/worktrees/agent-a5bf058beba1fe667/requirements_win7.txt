@@ -1,0 +1,20 @@
+# Python 3.8 + Windows 7 兼容依赖清单
+# TCL表格比对系统 - Win7专用打包版本
+
+# === GUI框架（必须）===
+PyQt5==5.15.9
+
+# === Excel处理（必须）===
+openpyxl==3.1.2
+
+# === 网络功能（可选 - 局域网模式）===
+flask==2.3.3
+flask-cors==4.0.0
+requests==2.31.0
+
+# === 打包工具（Win7兼容版本）===
+PyInstaller==5.6.2
+
+# === 系统依赖（Win7必须）===
+setuptools==68.0.0
+wheel==0.41.2

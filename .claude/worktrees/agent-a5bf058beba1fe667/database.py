@@ -3,12 +3,7 @@ from datetime import datetime
 import os
 
 class DatabaseManager:
-    def __init__(self, db_path=None):
-        if db_path is None:
-            # 数据库文件放在用户 AppData 目录，确保有写权限
-            app_data = os.path.join(os.environ.get('APPDATA', os.path.expanduser('~')), 'TCL表格比对')
-            os.makedirs(app_data, exist_ok=True)
-            db_path = os.path.join(app_data, 'TCL表格数据库.db')
+    def __init__(self, db_path="TCL表格数据库.db"):
         self.db_path = db_path
         self.conn = None
         self.cursor = None

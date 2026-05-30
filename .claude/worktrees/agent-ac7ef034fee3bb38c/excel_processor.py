@@ -91,54 +91,40 @@ class ExcelProcessor:
 
         for key, today_row in today_dict.items():
             today_total = today_row.get('总缺料', 0) or 0
-            transit_qty = today_row.get('供应商在途量', 0) or 0
-            shipment_qty = (shipment_dict.get(key, 0) if shipment_dict else 0) or 0
-
             if key in yesterday_dict:
                 yesterday_total = yesterday_dict[key].get('总缺料', 0) or 0
+                item = dict(today_row)
+                item['昨天总缺料'] = yesterday_total
+                item['今天总缺料'] = today_total
+                # 计算本次送货数量
+                shipment_qty = (shipment_dict.get(key, 0) if shipment_dict else 0) or 0
+                item['本次送货数量'] = shipment_qty
+                # 剩余出货量：数值一致时扣减，不一致时保留原始值
+                if yesterday_total == shipment_qty:
+                    item['剩余出货量'] = 0
+                else:
+                    item['剩余出货量'] = yesterday_total
+                # 变化量 = 今天总缺料 - 剩余出货量
+                item['变化量'] = today_total - item['剩余出货量']
+                diff_result.append(item)
             else:
-                yesterday_total = 0
-
-            item = dict(today_row)
-            item['昨天总缺料'] = yesterday_total
-            item['今天总缺料'] = today_total
-            item['本次送货数量'] = shipment_qty
-
-            # 数据1：今天总缺料 - 供应商在途量
-            item['数据1'] = today_total - transit_qty
-
-            # 数据2：昨天总缺料 - 本次送货数量（相同才减，不同引用昨天总缺料）
-            if yesterday_total == shipment_qty:
-                item['数据2'] = 0
-            else:
-                item['数据2'] = yesterday_total
-
-            # 变化量：数据1 - 数据2
-            item['变化量'] = item['数据1'] - item['数据2']
-
-            diff_result.append(item)
+                item = dict(today_row)
+                item['昨天总缺料'] = 0
+                item['今天总缺料'] = today_total
+                item['本次送货数量'] = 0
+                item['剩余出货量'] = 0
+                item['变化量'] = today_total
+                diff_result.append(item)
 
         for key, yesterday_row in yesterday_dict.items():
             if key not in today_dict:
                 yesterday_total = yesterday_row.get('总缺料', 0) or 0
-                transit_qty = yesterday_row.get('供应商在途量', 0) or 0
                 item = dict(yesterday_row)
                 item['昨天总缺料'] = yesterday_total
                 item['今天总缺料'] = 0
                 item['本次送货数量'] = 0
-
-                # 数据1：今天总缺料（0） - 供应商在途量
-                item['数据1'] = 0 - transit_qty
-
-                # 数据2：昨天总缺料 - 本次送货数量（0）（相同才减，不同引用昨天总缺料）
-                if yesterday_total == 0:
-                    item['数据2'] = 0
-                else:
-                    item['数据2'] = yesterday_total
-
-                # 变化量：数据1 - 数据2
-                item['变化量'] = item['数据1'] - item['数据2']
-
+                item['剩余出货量'] = yesterday_total
+                item['变化量'] = -yesterday_total
                 diff_result.append(item)
 
         return diff_result
@@ -150,38 +136,6 @@ class ExcelProcessor:
             return (is_red_change, -change_value)
 
         return sorted(diff_data, key=sort_key)
-
-    def build_shipment_quantity_map(self, shipment_data):
-        shipment_dict = {}
-        for row in shipment_data:
-            key = self.make_match_key(row)
-            quantity = row.get('本次送货数量', 0) or 0
-            if key and key != '|||':
-                shipment_dict[key] = shipment_dict.get(key, 0) + quantity
-        return shipment_dict
-
-    def attach_shipment_quantities(self, diff_data, shipment_dict):
-        for item in diff_data:
-            key = self.make_match_key(item)
-            item['本次送货数量'] = shipment_dict.get(key, 0)
-        return diff_data
-
-    def build_level1_records(self, diff_data, today_data):
-        data_for_db = []
-        for idx, item in enumerate(diff_data, 1):
-            today_row = next((r for r in today_data if r.get('物料号') == item['物料号']), {})
-            category = self.classify_material(item['物料描述'])
-            data_for_db.append({
-                '序号': idx,
-                '物料号': item['物料号'],
-                '物料描述': item['物料描述'],
-                '供方': item['供方'],
-                '总缺料': item['今天总缺料'],
-                '分类': category,
-                '订单号': today_row.get('销售订单', ''),
-                '送货日期': today_row.get('供方', '')
-            })
-        return data_for_db
 
     def classify_material(self, material_description):
         if not material_description:
@@ -202,7 +156,7 @@ class ExcelProcessor:
             wb.save(output_path)
             return output_path
 
-        priority_headers = ['序号', '物料号', '供应商在途量', '昨天总缺料', '今天总缺料', '数据1', '数据2', '变化量', '本次送货数量', '物料描述', '供方',
+        priority_headers = ['序号', '物料号', '供应商在途量', '昨天总缺料', '今天总缺料', '变化量', '剩余出货量', '本次送货数量', '物料描述', '供方',
                            '异常', '备注', '销售订单', '销售订单行号', '内需单号']
 
         all_fields = []
@@ -268,6 +222,13 @@ class ExcelProcessor:
                     if change_value != item.get('今天总缺料', 0):
                         cell.font = red_font
 
+                elif header == '剩余出货量':
+                    shipment_qty = item.get('本次送货数量', 0) or 0
+                    remaining_qty = (item.get('今天总缺料', 0) or 0) - shipment_qty
+                    cell.value = remaining_qty
+                    if item.get('昨天总缺料', 0) == 0:
+                        cell.font = red_font
+
                 elif header == '供应商在途量':
                     transit_qty = value
                     if transit_qty != '' and transit_qty != 0 and transit_qty is not None:
@@ -288,8 +249,7 @@ class ExcelProcessor:
             '昨天总缺料': 14,
             '今天总缺料': 14,
             '变化量': 10,
-            '数据1': 12,
-            '数据2': 12,
+            '剩余出货量': 12,
             '本次送货数量': 14,
             '供应商在途量': 15,
             '物料描述': 60,

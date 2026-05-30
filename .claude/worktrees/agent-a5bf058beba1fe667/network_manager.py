@@ -13,13 +13,11 @@ class NetworkManager:
     """网络连接管理器"""
 
     def __init__(self):
-        # 配置文件在 data/ 目录
-        self.config_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data', 'network_config.json')
+        self.config_file = 'network_config.json'
         self.server_url = ''
         self.is_server_mode = False
         self.client_id = ''
         self.server_password = ''
-        self.auto_connect = False  # 是否开机自动连接
         self.timeout = 10  # 请求超时时间（秒）
 
         self.load_config()
@@ -34,7 +32,6 @@ class NetworkManager:
                     self.is_server_mode = config.get('is_server_mode', False)
                     self.client_id = config.get('client_id', self._generate_client_id())
                     self.server_password = config.get('server_password', '')
-                    self.auto_connect = config.get('auto_connect', False)
             except UnicodeDecodeError:
                 # 旧版本可能用GBK编码，尝试GBK读取后用UTF-8重新保存
                 try:
@@ -44,7 +41,6 @@ class NetworkManager:
                         self.is_server_mode = config.get('is_server_mode', False)
                         self.client_id = config.get('client_id', self._generate_client_id())
                         self.server_password = config.get('server_password', '')
-                        self.auto_connect = config.get('auto_connect', False)
                     self.save_config()
                 except Exception:
                     self.client_id = self._generate_client_id()
@@ -61,7 +57,6 @@ class NetworkManager:
             'is_server_mode': self.is_server_mode,
             'client_id': self.client_id,
             'server_password': self.server_password,
-            'auto_connect': self.auto_connect,
             'last_updated': datetime.now().isoformat()
         }
         try:
@@ -85,7 +80,7 @@ class NetworkManager:
             headers['X-Auth-Token'] = self.server_password
         return headers
 
-    def set_server_mode(self, server_url, is_enabled=True, password='', auto_connect=None):
+    def set_server_mode(self, server_url, is_enabled=True, password=''):
         """
         设置服务器模式
 
@@ -93,14 +88,11 @@ class NetworkManager:
             server_url: 服务器地址 (例如: http://192.168.1.100:5000)
             is_enabled: 是否启用服务器模式
             password: 连接密码
-            auto_connect: 是否开机自动连接（None表示不修改）
         """
         self.server_url = server_url.rstrip('/')
         self.is_server_mode = is_enabled
         if password:
             self.server_password = password
-        if auto_connect is not None:
-            self.auto_connect = auto_connect
         self.save_config()
 
         if is_enabled:
@@ -329,33 +321,6 @@ class NetworkManager:
             return response.json(), None
         except Exception as e:
             return None, f"网络错误: {str(e)}"
-
-    def check_server_changes(self):
-        """
-        检查服务器数据是否有变更（轻量级，不拉取完整数据）
-
-        Returns:
-            tuple: (changed: bool, error: str|None)
-        """
-        if not self.is_server_mode or not self.server_url:
-            return False, None
-
-        try:
-            url = f"{self.server_url}/api/sync/check"
-            response = requests.get(
-                url,
-                headers=self._get_headers(),
-                timeout=self.timeout
-            )
-            if response.status_code == 200:
-                return response.json(), None
-            return None, f"HTTP {response.status_code}"
-        except requests.exceptions.ConnectionError:
-            return None, "连接失败"
-        except requests.exceptions.Timeout:
-            return None, "连接超时"
-        except Exception as e:
-            return None, str(e)
 
     def get_local_ip(self):
         """获取本机IP地址（用于显示给用户）"""

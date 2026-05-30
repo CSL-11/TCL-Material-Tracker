@@ -7,24 +7,19 @@ from PyQt5.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                              QFileDialog, QMessageBox, QHeaderView, QFrame,
                              QGridLayout, QListWidgetItem, QAbstractItemView,
                              QScrollArea, QGroupBox, QDialog, QMenuBar, QAction,
-                             QApplication, QCheckBox, QSystemTrayIcon, QMenu)
-from PyQt5.QtCore import Qt, QSize, QThread, pyqtSignal, QTimer, QSharedMemory
+                             QApplication, QCheckBox)
+from PyQt5.QtCore import Qt, QSize, QThread, pyqtSignal, QTimer
 from PyQt5.QtGui import QIcon, QFont, QColor, QPalette
 
 from database import DatabaseManager
 from excel_processor import ExcelProcessor
 from network_manager import network_manager
-from version import __version__
 
 
 def get_app_dir():
-    """获取应用数据目录，打包后使用 AppData 确保有写权限"""
+    """获取应用所在目录，兼容PyInstaller打包后的EXE"""
     if getattr(sys, 'frozen', False):
-        # 打包后使用 AppData 目录
-        app_data = os.path.join(os.environ.get('APPDATA', os.path.expanduser('~')), 'TCL表格比对')
-        os.makedirs(app_data, exist_ok=True)
-        os.makedirs(os.path.join(app_data, "data"), exist_ok=True)
-        return app_data
+        return os.path.dirname(sys.executable)
     return os.path.dirname(os.path.abspath(__file__))
 
 
@@ -87,7 +82,7 @@ class ServerThread(QThread):
                     'status': 'ok',
                     'server': 'TCL表格比对系统服务器',
                     'name': server_name,
-                    'version': __version__,
+                    'version': '1.0.0',
                     'timestamp': datetime.now().isoformat()
                 })
 
@@ -251,11 +246,6 @@ class ServerSettingsDialog(QDialog):
         self.search_thread = None
         self.found_servers = []
 
-        # 从父窗口继承正在运行的服务器线程
-        if parent and hasattr(parent, '_server_thread') and parent._server_thread and parent._server_thread.isRunning():
-            self.server_thread = parent._server_thread
-            self.is_server_running = True
-
         self.init_ui()
 
     def init_ui(self):
@@ -382,16 +372,6 @@ class ServerSettingsDialog(QDialog):
         password_layout.addWidget(password_label)
         password_layout.addWidget(self.client_password_edit)
         mode_layout.addLayout(password_layout)
-
-        # 开机自动连接服务器（客户端模式）
-        client_autostart_layout = QHBoxLayout()
-        self.client_autostart_checkbox = QCheckBox("开机自动连接到此服务器")
-        self.client_autostart_checkbox.setChecked(False)
-        self.client_autostart_checkbox.stateChanged.connect(self._toggle_client_autostart)
-        self.client_autostart_checkbox.setEnabled(False)  # 本地模式下禁用
-        client_autostart_layout.addWidget(self.client_autostart_checkbox)
-        client_autostart_layout.addStretch()
-        mode_layout.addLayout(client_autostart_layout)
 
         mode_group.setLayout(mode_layout)
         layout.addWidget(mode_group)
@@ -711,7 +691,6 @@ class ServerSettingsDialog(QDialog):
 
     def _init_mode_state(self):
         """初始化网络模式状态"""
-        import subprocess
         parent = self.parent()
         if parent and hasattr(parent, 'network'):
             network = parent.network
@@ -726,19 +705,6 @@ class ServerSettingsDialog(QDialog):
                 self.server_mode_btn.setChecked(False)
                 self.connection_status.setText("● 本地模式")
                 self.connection_status.setStyleSheet("color: #10B981; font-size: 12px; font-weight: bold;")
-
-            # 初始化客户端自启动状态
-            task_exists = self._check_client_autostart_task()
-            config_enabled = getattr(network, 'auto_connect', False)
-            self.client_autostart_checkbox.setChecked(task_exists and config_enabled)
-            self.client_autostart_checkbox.setEnabled(network.is_server_mode)
-            # 自愈：任务存在但配置为False，清理孤立任务
-            if task_exists and not config_enabled:
-                subprocess.run('schtasks /delete /tn "TCL表格比对客户端" /f', shell=True, capture_output=True, text=True, timeout=10)
-
-        # 如果服务器正在运行，恢复运行状态显示
-        if self.is_server_running and self.server_thread:
-            self._on_server_started()
 
     def set_network_mode(self, is_server_mode):
         """设置网络模式"""
@@ -772,15 +738,9 @@ class ServerSettingsDialog(QDialog):
                     self.local_mode_btn.setChecked(False)
                     self.connection_status.setText("● 服务器模式")
                     self.connection_status.setStyleSheet("color: #3B82F6; font-size: 12px; font-weight: bold;")
-                    self.client_autostart_checkbox.setEnabled(True)
                     # 更新主界面
                     if hasattr(parent, 'update_network_status'):
                         parent.update_network_status()
-                    # 立即从服务器加载数据
-                    if hasattr(parent, '_refresh_data_from_server'):
-                        parent._refresh_data_from_server()
-                    if hasattr(parent, '_start_sync_timer'):
-                        parent._start_sync_timer()
                 else:
                     # 恢复原始状态
                     network.set_server_mode(original_url, original_mode, original_password)
@@ -788,7 +748,6 @@ class ServerSettingsDialog(QDialog):
                     self.server_mode_btn.setChecked(False)
                     self.connection_status.setText("● 连接失败")
                     self.connection_status.setStyleSheet("color: #EF4444; font-size: 12px;")
-                    self.client_autostart_checkbox.setEnabled(False)
                     QMessageBox.warning(self, "连接失败", f"无法连接到服务器:\n{msg}")
             self.test_connection_btn.setEnabled(True)
         else:
@@ -796,18 +755,12 @@ class ServerSettingsDialog(QDialog):
             self.server_mode_btn.setChecked(False)
             self.connection_status.setText("● 本地模式")
             self.connection_status.setStyleSheet("color: #10B981; font-size: 12px; font-weight: bold;")
-            # 禁用并取消客户端自启动
-            if self.client_autostart_checkbox.isChecked():
-                self.client_autostart_checkbox.setChecked(False)
-            self.client_autostart_checkbox.setEnabled(False)
 
             parent = self.parent()
             if parent and hasattr(parent, 'network'):
                 parent.network.set_server_mode('', False)
                 if hasattr(parent, 'update_network_status'):
                     parent.update_network_status()
-                if hasattr(parent, '_stop_sync_timer'):
-                    parent._stop_sync_timer()
 
     def test_connection(self):
         """测试服务器连接"""
@@ -961,55 +914,6 @@ class ServerSettingsDialog(QDialog):
         self._update_clients_timer.timeout.connect(self._update_online_clients)
         self._update_clients_timer.start(5000)  # 每5秒更新
         self._update_online_clients()
-
-        # 启动服务器后，将本地数据同步到服务器
-        self._upload_local_data_to_server()
-
-    def _upload_local_data_to_server(self):
-        """启动服务器后，将本地数据上传到服务器"""
-        try:
-            parent = self.parent()
-            if not parent or not hasattr(parent, 'network'):
-                return
-
-            import requests
-            port = self.port_edit.text().strip()
-            server_url = f"http://127.0.0.1:{port}"
-
-            # 上传数据库数据
-            if hasattr(parent, 'db_all_data') and parent.db_all_data:
-                headers = parent.current_db_headers if hasattr(parent, 'current_db_headers') else []
-                data = parent.db_all_data
-                try:
-                    resp = requests.post(
-                        f"{server_url}/api/db/data",
-                        json={'headers': headers, 'data': data},
-                        headers={'X-Client-ID': 'server-host'},
-                        timeout=5
-                    )
-                    if resp.json().get('success'):
-                        print(f"[INFO] 已同步 {len(data)} 条数据库数据到服务器")
-                except Exception as e:
-                    print(f"[WARN] 同步数据库数据失败: {e}")
-
-            # 上传批量导入数据
-            if hasattr(parent, 'batch_import_data') and parent.batch_import_data:
-                headers = parent.batch_import_headers if hasattr(parent, 'batch_import_headers') else []
-                data = parent.batch_import_data
-                try:
-                    resp = requests.post(
-                        f"{server_url}/api/batch/data",
-                        json={'headers': headers, 'data': data},
-                        headers={'X-Client-ID': 'server-host'},
-                        timeout=5
-                    )
-                    if resp.json().get('success'):
-                        print(f"[INFO] 已同步 {len(data)} 条批量导入数据到服务器")
-                except Exception as e:
-                    print(f"[WARN] 同步批量导入数据失败: {e}")
-
-        except Exception as e:
-            print(f"[WARN] 上传本地数据到服务器失败: {e}")
 
     def _on_server_stopped(self):
         """服务器停止回调"""
@@ -1281,10 +1185,6 @@ class ServerSettingsDialog(QDialog):
                 cmd = f'schtasks /create /tn "{task_name}" /tr "\\"{exe_path}\\" --server" /sc onlogon /f'
                 result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=10)
                 if result.returncode == 0:
-                    # 互斥：删除客户端自启动任务
-                    subprocess.run('schtasks /delete /tn "TCL表格比对客户端" /f', shell=True, capture_output=True, text=True, timeout=10)
-                    if hasattr(self, 'client_autostart_checkbox'):
-                        self.client_autostart_checkbox.setChecked(False)
                     QMessageBox.information(self, "设置成功", "已设置开机自动启动服务器")
                 else:
                     QMessageBox.warning(self, "设置失败", f"设置开机自启失败:\n{result.stderr}")
@@ -1298,67 +1198,6 @@ class ServerSettingsDialog(QDialog):
                 else:
                     QMessageBox.warning(self, "取消失败", f"取消开机自启失败:\n{result.stderr}")
                     self.autostart_checkbox.setChecked(True)
-        except Exception as e:
-            QMessageBox.warning(self, "错误", f"操作失败:\n{str(e)}")
-
-    def _check_client_autostart_task(self):
-        """检查是否已设置客户端开机自动连接"""
-        import subprocess
-        try:
-            result = subprocess.run(
-                ['schtasks', '/query', '/tn', 'TCL表格比对客户端'],
-                capture_output=True, text=True, timeout=5
-            )
-            return result.returncode == 0
-        except Exception:
-            return False
-
-    def _toggle_client_autostart(self, state):
-        """切换客户端开机自动连接"""
-        import subprocess
-        task_name = 'TCL表格比对客户端'
-        try:
-            if state == 2:  # Qt.Checked
-                server_url = self.server_url_edit.text().strip()
-                if not server_url:
-                    QMessageBox.warning(self, "提示", "请先输入服务器地址并连接")
-                    self.client_autostart_checkbox.setChecked(False)
-                    return
-
-                if getattr(sys, 'frozen', False):
-                    exe_path = sys.executable
-                else:
-                    exe_path = os.path.abspath(sys.argv[0])
-                # 创建计划任务
-                cmd = f'schtasks /create /tn "{task_name}" /tr "\\"{exe_path}\\" --client" /sc onlogon /f'
-                result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=10)
-                if result.returncode == 0:
-                    # 互斥：删除服务器自启动任务
-                    subprocess.run('schtasks /delete /tn "TCL表格比对服务器" /f', shell=True, capture_output=True, text=True, timeout=10)
-                    if hasattr(self, 'autostart_checkbox'):
-                        self.autostart_checkbox.setChecked(False)
-                    # 保存 auto_connect 标记
-                    parent = self.parent()
-                    if parent and hasattr(parent, 'network'):
-                        parent.network.auto_connect = True
-                        parent.network.save_config()
-                    QMessageBox.information(self, "设置成功", "已设置开机自动连接服务器")
-                else:
-                    QMessageBox.warning(self, "设置失败", f"设置开机自启失败:\n{result.stderr}")
-                    self.client_autostart_checkbox.setChecked(False)
-            else:
-                # 删除计划任务
-                cmd = f'schtasks /delete /tn "{task_name}" /f'
-                result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=10)
-                if result.returncode == 0:
-                    parent = self.parent()
-                    if parent and hasattr(parent, 'network'):
-                        parent.network.auto_connect = False
-                        parent.network.save_config()
-                    QMessageBox.information(self, "取消成功", "已取消开机自动连接")
-                else:
-                    QMessageBox.warning(self, "取消失败", f"取消开机自启失败:\n{result.stderr}")
-                    self.client_autostart_checkbox.setChecked(True)
         except Exception as e:
             QMessageBox.warning(self, "错误", f"操作失败:\n{str(e)}")
 
@@ -1519,13 +1358,6 @@ class TCLApplication(QMainWindow):
         self._server_thread = None
         self._is_server_running = False
 
-        # 实时同步定时器
-        self._sync_timer = QTimer(self)
-        self._sync_timer.timeout.connect(self._check_server_sync)
-        self._last_sync_update = None  # 上次检测到的服务器更新时间
-        self._last_batch_count = None  # 上次检测到的批量导入数据量
-        self._sync_interval = 10000  # 轮询间隔（毫秒）
-
         self.yesterday_file = ""
         self.today_file = ""
         self.shipment_file = ""
@@ -1546,14 +1378,14 @@ class TCLApplication(QMainWindow):
         self.current_db_file = ""
         self.current_db_headers = []
 
-        # 数据持久化文件路径（配置文件在 data/ 目录）
-        self.db_data_file = os.path.join(get_app_dir(), "data", "db_cache.json")
+        # 数据持久化文件路径
+        self.db_data_file = os.path.join(get_app_dir(), "db_cache.json")
 
         # 批量导入数据持久化文件路径
-        self.batch_import_data_file = os.path.join(get_app_dir(), "data", "batch_import_cache.json")
+        self.batch_import_data_file = os.path.join(get_app_dir(), "batch_import_cache.json")
 
         # 输出目录配置文件路径（保存上一次使用的输出目录）
-        self.output_dir_config_file = os.path.join(get_app_dir(), "data", "output_dir_config.json")
+        self.output_dir_config_file = os.path.join(get_app_dir(), "output_dir_config.json")
 
         self.init_ui()
         # 延迟加载保存的数据，确保UI完全初始化
@@ -1569,8 +1401,6 @@ class TCLApplication(QMainWindow):
         # 检查是否需要自动启动服务器（开机自启模式）
         if '--server' in sys.argv:
             QTimer.singleShot(1000, self.auto_start_server)
-        elif '--client' in sys.argv:
-            QTimer.singleShot(1000, self.auto_connect_client)
 
     def is_widget_valid(self, widget):
         """安全检查Qt widget对象是否仍然有效"""
@@ -1615,20 +1445,8 @@ class TCLApplication(QMainWindow):
             return None
 
     def init_ui(self):
-        self.setWindowTitle(f"TCL表格比对系统 v{__version__}")
+        self.setWindowTitle("TCL表格比对系统")
         self.setGeometry(100, 100, 1200, 800)
-
-        # 设置窗口图标（图标在 resources/ 目录）
-        icon_path = os.path.join(get_app_dir(), "resources", "icon.png")
-        if os.path.exists(icon_path):
-            self.setWindowIcon(QIcon(icon_path))
-        else:
-            # 尝试从PyInstaller资源目录加载
-            if getattr(sys, 'frozen', False):
-                base_path = sys._MEIPASS
-                icon_path = os.path.join(base_path, "icon.png")
-                if os.path.exists(icon_path):
-                    self.setWindowIcon(QIcon(icon_path))
 
         self.setup_styles()
 
@@ -1652,79 +1470,6 @@ class TCLApplication(QMainWindow):
         self.setup_page4()
         self.setup_page6()
         self.setup_page7()
-
-        # 初始化系统托盘图标
-        self.init_system_tray()
-
-    def init_system_tray(self):
-        """初始化系统托盘图标"""
-        # 创建系统托盘图标
-        self.tray_icon = QSystemTrayIcon(self)
-
-        # 设置托盘图标（图标在 resources/ 目录）
-        icon_path = os.path.join(get_app_dir(), "resources", "icon.png")
-        if not os.path.exists(icon_path) and getattr(sys, 'frozen', False):
-            # 尝试从PyInstaller资源目录加载
-            base_path = sys._MEIPASS
-            icon_path = os.path.join(base_path, "icon.png")
-
-        if os.path.exists(icon_path):
-            self.tray_icon.setIcon(QIcon(icon_path))
-        else:
-            # 使用默认图标
-            self.tray_icon.setIcon(self.style().standardIcon(self.style().SP_ComputerIcon))
-
-        # 创建托盘右键菜单
-        tray_menu = QMenu()
-
-        # 显示主窗口选项
-        show_action = QAction("显示主窗口", self)
-        show_action.triggered.connect(self.show_main_window)
-        tray_menu.addAction(show_action)
-
-        tray_menu.addSeparator()
-
-        # 退出选项
-        quit_action = QAction("退出", self)
-        quit_action.triggered.connect(self.quit_application)
-        tray_menu.addAction(quit_action)
-
-        # 设置托盘图标的菜单
-        self.tray_icon.setContextMenu(tray_menu)
-
-        # 点击托盘图标时显示主窗口
-        self.tray_icon.activated.connect(self.tray_icon_activated)
-
-        # 显示托盘图标
-        self.tray_icon.show()
-
-    def tray_icon_activated(self, reason):
-        """托盘图标被点击时的处理"""
-        if reason == QSystemTrayIcon.DoubleClick:
-            self.show_main_window()
-
-    def show_main_window(self):
-        """显示主窗口"""
-        self.showNormal()
-        self.activateWindow()
-        self.raise_()
-
-    def quit_application(self):
-        """完全退出应用程序"""
-        # 停止服务器线程（如果正在运行）
-        if self._server_thread and self._server_thread.isRunning():
-            self._server_thread.terminate()
-            self._server_thread.wait(1000)
-
-        # 关闭数据库连接
-        if self.db:
-            self.db.close()
-
-        # 隐藏托盘图标
-        self.tray_icon.hide()
-
-        # 退出应用程序
-        QApplication.quit()
 
     def setup_styles(self):
         self.sidebar_width = 80
@@ -2111,7 +1856,7 @@ class TCLApplication(QMainWindow):
                 border-color: #F97316;
             }
         """)
-        self.db_search_edit.setPlaceholderText("输入物料号搜索，多个用空格/逗号/分号分隔\n精确匹配格式：物料号|销售订单|销售订单行号|内需单号")
+        self.db_search_edit.setPlaceholderText("输入物料号精确搜索，多个用逗号分隔\n精确匹配格式：物料号|销售订单|销售订单行号|内需单号")
         self.db_search_edit.textChanged.connect(self.filter_db_data)
 
         import_search_btn = QPushButton("导入搜索条件")
@@ -2546,7 +2291,7 @@ class TCLApplication(QMainWindow):
                 border-color: #F97316;
             }
         """)
-        self.batch_search_edit.setPlaceholderText("输入物料号搜索，多个用空格/逗号/分号分隔")
+        self.batch_search_edit.setPlaceholderText("输入物料号搜索，多个用逗号分隔")
         self.batch_search_edit.textChanged.connect(self.filter_batch_data)
 
         import_batch_search_btn = QPushButton("导入搜索条件")
@@ -2796,7 +2541,11 @@ class TCLApplication(QMainWindow):
                 _, shipment_data = self.excel_processor.read_excel(shipment_path)
                 self.result_text.append(f"出货表格: {len(shipment_data)} 条记录\n")
 
-                shipment_dict = self.excel_processor.build_shipment_quantity_map(shipment_data)
+                for row in shipment_data:
+                    key = self.make_match_key(row)
+                    quantity = row.get('本次送货数量', 0) or 0
+                    if key and key != '|||':
+                        shipment_dict[key] = shipment_dict.get(key, 0) + quantity
 
                 self.result_text.append(f"出货匹配键数量: {len(shipment_dict)} 条\n")
 
@@ -2804,7 +2553,12 @@ class TCLApplication(QMainWindow):
                 # today_data = self.subtract_shipment(today_data, shipment_dict)
                 # self.result_text.append(f"扣除出货后今天表格: {len(today_data)} 条记录\n")
 
-            diff_data = self.excel_processor.compare_and_get_diff(yesterday_data, today_data, shipment_dict)
+            diff_data = self.excel_processor.compare_and_get_diff(yesterday_data, today_data)
+
+            for item in diff_data:
+                key = self.make_match_key(item)
+                item['本次送货数量'] = shipment_dict.get(key, 0)
+
             diff_data = self.excel_processor.sort_diff_data(diff_data)
 
             self.result_text.append(f"发现 {len(diff_data)} 条差异记录\n")
@@ -2826,14 +2580,24 @@ class TCLApplication(QMainWindow):
             self.output_dir = output_dir
             self.save_output_dir_config()
 
-            data_for_db = self.excel_processor.build_level1_records(diff_data, today_data)
+            data_for_db = []
+            for idx, item in enumerate(diff_data, 1):
+                today_row = next((r for r in today_data if r.get('物料号') == item['物料号']), {})
+                category = self.excel_processor.classify_material(item['物料描述'])
+                data_for_db.append({
+                    '序号': idx,
+                    '物料号': item['物料号'],
+                    '物料描述': item['物料描述'],
+                    '供方': item['供方'],
+                    '总缺料': item['今天总缺料'],
+                    '分类': category,
+                    '订单号': today_row.get('销售订单', ''),
+                    '送货日期': today_row.get('供方', '')
+                })
 
             self.db.insert_or_update_level1(data_for_db)
 
             self.result_text.append(f"已更新数据库 {len(data_for_db)} 条记录\n")
-
-            # 持久化数据到本地文件，确保重启后可用
-            self.save_db_data()
 
             QMessageBox.information(self, "完成", f"比对完成！\n差异记录: {len(diff_data)} 条\n文件已保存到:\n{output_file}")
 
@@ -3421,180 +3185,130 @@ class TCLApplication(QMainWindow):
         self.db_info_label.setText(f"共 {len(data)} 条数据")
 
     def save_db_data(self):
-        """保存当前数据（始终保存本地副本，服务器模式同时保存到服务器）"""
-        headers = self.current_db_headers if hasattr(self, 'current_db_headers') else []
-        data = self.db_all_data if hasattr(self, 'db_all_data') else []
-        # 始终保存本地副本，确保重启后有数据
-        self._save_db_data_local(headers, data)
-        # 服务器模式同时保存到服务器
-        if self.network.is_server_mode:
-            self.save_db_data_with_mode(headers, data)
-        # 如果本地服务器正在运行，同步数据到服务器
-        elif self._server_thread and self._server_thread.isRunning():
-            self._sync_to_local_server(headers, data)
-
-    def _save_db_data_local(self, headers, data):
-        """本地保存数据库数据"""
+        """保存当前数据到本地文件"""
         import json
         try:
-            save_data = {'headers': headers, 'data': data}
+            save_data = {
+                'headers': self.current_db_headers if hasattr(self, 'current_db_headers') else [],
+                'data': self.db_all_data if hasattr(self, 'db_all_data') else []
+            }
             with open(self.db_data_file, 'w', encoding='utf-8') as f:
                 json.dump(save_data, f, ensure_ascii=False, indent=2)
         except Exception as e:
-            print(f"本地保存数据失败: {e}")
+            print(f"保存数据失败: {e}")
 
-    def _sync_to_local_server(self, headers, data):
-        """同步数据到本地运行的服务器"""
-        try:
-            import requests
-            port = self._server_thread.port if hasattr(self._server_thread, 'port') else 5000
-            resp = requests.post(
-                f"http://127.0.0.1:{port}/api/db/data",
-                json={'headers': headers, 'data': data},
-                headers={'X-Client-ID': 'server-host'},
-                timeout=3
-            )
-            if resp.json().get('success'):
-                print(f"[INFO] 已同步 {len(data)} 条数据到本地服务器")
-        except Exception as e:
-            print(f"[WARN] 同步到本地服务器失败: {e}")
-
-    def _sync_batch_to_local_server(self, headers, data):
-        """同步批量导入数据到本地运行的服务器"""
-        try:
-            import requests
-            port = self._server_thread.port if hasattr(self._server_thread, 'port') else 5000
-            resp = requests.post(
-                f"http://127.0.0.1:{port}/api/batch/data",
-                json={'headers': headers, 'data': data},
-                headers={'X-Client-ID': 'server-host'},
-                timeout=3
-            )
-            if resp.json().get('success'):
-                print(f"[INFO] 已同步 {len(data)} 条批量导入数据到本地服务器")
-        except Exception as e:
-            print(f"[WARN] 同步批量导入数据到本地服务器失败: {e}")
-
-    def _load_db_data_local(self):
-        """本地加载数据库数据，返回 (headers, data)"""
+    def load_db_data(self):
+        """从本地文件加载数据"""
         import json
         try:
             if os.path.exists(self.db_data_file):
                 save_data = self._read_json_file(self.db_data_file)
-                if save_data:
-                    return save_data.get('headers', []), save_data.get('data', [])
-        except Exception as e:
-            print(f"本地加载数据失败: {e}")
-        return [], []
+                if save_data is None:
+                    return
 
-    def load_db_data(self):
-        """加载数据（服务器模式从服务器加载，本地模式从文件加载）"""
-        try:
-            if self.network.is_server_mode:
-                headers, data = self.load_db_data_with_mode(silent=True)
-            else:
-                headers, data = self._load_db_data_local()
+                headers = save_data.get('headers', [])
+                data = save_data.get('data', [])
 
-            if data and headers:
-                self.db_all_data = data
-                self.db_original_data = data
-                self.current_db_headers = headers
-                self.current_db_file = "已加载保存的数据"
-                self.red_highlight_indices = set()
+                print(f"load_db_data: headers数量={len(headers)}, data数量={len(data)}")
 
-                col_count = len(headers)
-                row_count = len(data)
-                print(f"设置表格: {col_count + 1} 列, {row_count} 行")
-                self.db_table.setColumnCount(col_count + 1)
-                self.db_table.setRowCount(row_count)
+                if data and headers:
+                    self.db_all_data = data
+                    self.db_original_data = data
+                    self.current_db_headers = headers
+                    self.current_db_file = "已加载保存的数据"
+                    self.red_highlight_indices = set()
 
-                # 第一列：复选框列（表头不显示文字，仅作占位）
-                self.db_table.setHorizontalHeaderItem(0, QTableWidgetItem(""))
-                for col_idx, header in enumerate(headers):
-                    item = QTableWidgetItem(str(header) if header else '')
-                    self.db_table.setHorizontalHeaderItem(col_idx + 1, item)
+                    # 显示数据
+                    col_count = len(headers)
+                    row_count = len(data)
+                    print(f"设置表格: {col_count + 1} 列, {row_count} 行")
+                    self.db_table.setColumnCount(col_count + 1)
+                    self.db_table.setRowCount(row_count)
 
-                for row_idx in range(row_count):
-                    row_data = data[row_idx]
-                    checkbox_widget = QWidget()
-                    checkbox_layout = QHBoxLayout(checkbox_widget)
-                    checkbox_layout.setContentsMargins(0, 0, 0, 0)
-                    checkbox_layout.setAlignment(Qt.AlignCenter)
-                    checkbox = QCheckBox()
-                    checkbox.setStyleSheet("QCheckBox { margin-left: 15px; }")
-                    checkbox_layout.addWidget(checkbox)
-                    self.db_table.setCellWidget(row_idx, 0, checkbox_widget)
-                    for col_idx in range(col_count):
-                        key = headers[col_idx]
-                        value = row_data.get(key, '') if isinstance(row_data, dict) else ''
-                        if value is None:
-                            value = ''
-                        self.db_table.setItem(row_idx, col_idx + 1, QTableWidgetItem(str(value)))
+                    # 第一列：复选框列（表头不显示文字，仅作占位）
+                    self.db_table.setHorizontalHeaderItem(0, QTableWidgetItem(""))
+                    for col_idx, header in enumerate(headers):
+                        item = QTableWidgetItem(str(header) if header else '')
+                        self.db_table.setHorizontalHeaderItem(col_idx + 1, item)
 
-                for col_idx in range(col_count + 1):
-                    if col_idx == 0:
-                        self.db_table.setColumnWidth(col_idx, 50)
-                    else:
-                        self.db_table.resizeColumnToContents(col_idx)
-                        if col_idx > 0 and headers[col_idx - 1] == '物料描述':
-                            self.db_table.setColumnWidth(col_idx, 300)
+                    for row_idx in range(row_count):
+                        row_data = data[row_idx]
+                        # 第一列：复选框使用QCheckBox居中显示
+                        checkbox_widget = QWidget()
+                        checkbox_layout = QHBoxLayout(checkbox_widget)
+                        checkbox_layout.setContentsMargins(0, 0, 0, 0)
+                        checkbox_layout.setAlignment(Qt.AlignCenter)
+                        checkbox = QCheckBox()
+                        checkbox.setStyleSheet("QCheckBox { margin-left: 15px; }")
+                        checkbox_layout.addWidget(checkbox)
+                        self.db_table.setCellWidget(row_idx, 0, checkbox_widget)
+                        # 数据列
+                        for col_idx in range(col_count):
+                            key = headers[col_idx]
+                            value = row_data.get(key, '') if isinstance(row_data, dict) else ''
+                            if value is None:
+                                value = ''
+                            self.db_table.setItem(row_idx, col_idx + 1, QTableWidgetItem(str(value)))
 
-                self.db_info_label.setText(f"已加载保存的数据 - 共 {len(data)} 条")
-                self.export_search_btn.setEnabled(True)
-                self.db_table.viewport().update()
-                self.db_table.update()
-                self.db_table.scrollToTop()
-                self.db_table.horizontalScrollBar().setValue(0)
+                    print(f"数据填充完成，准备更新标签")
+                    for col_idx in range(col_count + 1):
+                        if col_idx == 0:
+                            self.db_table.setColumnWidth(col_idx, 50)
+                        else:
+                            self.db_table.resizeColumnToContents(col_idx)
+                            if col_idx > 0 and headers[col_idx - 1] == '物料描述':
+                                self.db_table.setColumnWidth(col_idx, 300)
+
+                    print(f"设置标签文本: 已加载保存的数据 - 共 {len(data)} 条")
+                    self.db_info_label.setText(f"已加载保存的数据 - 共 {len(data)} 条")
+                    self.export_search_btn.setEnabled(True)
+                    print(f"已加载 {len(data)} 条数据")
+
+                    # 强制更新表格显示
+                    self.db_table.viewport().update()
+                    self.db_table.update()
+                    # 滚动到顶部
+                    self.db_table.scrollToTop()
+                    self.db_table.horizontalScrollBar().setValue(0)
         except Exception as e:
             print(f"加载数据失败: {e}")
 
     def save_batch_import_data(self):
-        """保存批量导入数据（始终保存本地副本，服务器模式同时保存到服务器）"""
-        headers = self.batch_import_headers if hasattr(self, 'batch_import_headers') else []
-        data = self.batch_import_data if hasattr(self, 'batch_import_data') else []
-        self._save_batch_import_data_local(headers, data)
-        if self.network.is_server_mode:
-            self.save_batch_import_data_with_mode(headers, data)
-        elif self._server_thread and self._server_thread.isRunning():
-            self._sync_batch_to_local_server(headers, data)
-
-    def load_batch_import_data(self):
-        """加载批量导入数据（服务器模式从服务器加载，本地模式从文件加载）"""
-        try:
-            if self.network.is_server_mode:
-                headers, data = self.load_batch_import_data_with_mode(silent=True)
-            else:
-                headers, data = self._load_batch_import_data_local()
-
-            if data and headers:
-                self.batch_import_headers = headers
-                self.batch_import_data = data
-                self.batch_refresh_table()
-                self.batch_info_label.setText(f"已加载保存的数据 - 共 {len(data)} 条")
-        except Exception as e:
-            print(f"加载批量导入数据失败: {e}")
-
-    def _save_batch_import_data_local(self, headers, data):
-        """本地保存批量导入数据"""
+        """保存批量导入数据到本地文件"""
         import json
         try:
-            save_data = {'headers': headers, 'data': data}
+            save_data = {
+                'headers': self.batch_import_headers if hasattr(self, 'batch_import_headers') else [],
+                'data': self.batch_import_data if hasattr(self, 'batch_import_data') else []
+            }
             with open(self.batch_import_data_file, 'w', encoding='utf-8') as f:
                 json.dump(save_data, f, ensure_ascii=False, indent=2)
         except Exception as e:
-            print(f"本地保存批量导入数据失败: {e}")
+            print(f"保存批量导入数据失败: {e}")
 
-    def _load_batch_import_data_local(self):
-        """本地加载批量导入数据，返回 (headers, data)"""
+    def load_batch_import_data(self):
+        """从本地文件加载批量导入数据"""
         import json
         try:
             if os.path.exists(self.batch_import_data_file):
                 save_data = self._read_json_file(self.batch_import_data_file)
-                if save_data:
-                    return save_data.get('headers', []), save_data.get('data', [])
+                if save_data is None:
+                    return
+
+                headers = save_data.get('headers', [])
+                data = save_data.get('data', [])
+
+                if data and headers:
+                    self.batch_import_headers = headers
+                    self.batch_import_data = data
+
+                    print(f"加载批量导入数据: headers数量={len(headers)}, data数量={len(data)}")
+
+                    # 显示数据
+                    self.batch_refresh_table()
+                    self.batch_info_label.setText(f"已加载保存的数据 - 共 {len(data)} 条")
         except Exception as e:
-            print(f"本地加载批量导入数据失败: {e}")
-        return [], []
+            print(f"加载批量导入数据失败: {e}")
 
     def save_output_dir_config(self):
         """保存输出目录配置到本地文件"""
@@ -3647,8 +3361,7 @@ class TCLApplication(QMainWindow):
 
         headers = self.current_db_headers
 
-        import re
-        keywords = [k.strip() for k in re.split(r'[,;，；\s]+', text) if k.strip()]
+        keywords = [k.strip() for k in text.split(',') if k.strip()]
         if not keywords:
             data = self.db_all_data
             self.db_search_keywords = []
@@ -5095,8 +4808,7 @@ class TCLApplication(QMainWindow):
         if not hasattr(self, 'batch_import_data') or not self.batch_import_data:
             return
 
-        import re
-        keywords = [k.strip() for k in re.split(r'[,;，；\s]+', text) if k.strip()]
+        keywords = [k.strip() for k in text.split(',') if k.strip()]
 
         if not keywords:
             # 没有搜索关键词，显示所有数据
@@ -5626,25 +5338,9 @@ class TCLApplication(QMainWindow):
             QMessageBox.information(self, "完成", f"已删除 {checked_count} 条记录")
 
     def closeEvent(self, event):
-        """关闭窗口事件 - 最小化到托盘而不是退出"""
-        # 隐藏窗口
-        self.hide()
-
-        # 确保托盘图标可见
-        if hasattr(self, 'tray_icon') and self.tray_icon:
-            if not self.tray_icon.isVisible():
-                self.tray_icon.show()
-
-            # 显示托盘通知
-            self.tray_icon.showMessage(
-                f"TCL表格比对系统 v{__version__}",
-                "程序已最小化到托盘，右键点击托盘图标可以退出程序",
-                QSystemTrayIcon.Information,
-                2000
-            )
-
-        # 忽略关闭事件，只隐藏窗口
-        event.ignore()
+        if self.db:
+            self.db.close()
+        event.accept()
 
     def auto_start_server(self):
         """自动启动服务器（开机自启模式）"""
@@ -5678,55 +5374,14 @@ class TCLApplication(QMainWindow):
         """自动启动服务器失败"""
         print(f"[ERROR] 服务器自动启动失败: {error_msg}")
 
-    def auto_connect_client(self):
-        """自动连接到服务器（开机自启客户端模式）"""
-        try:
-            if not self.network.is_server_mode or not self.network.server_url:
-                print("[WARN] 客户端自动连接: 未配置服务器地址，跳过")
-                return
-
-            print(f"[INFO] 正在自动连接到服务器: {self.network.server_url}")
-            success, msg = self.network.test_connection()
-            if success:
-                print(f"[OK] 自动连接成功: {msg}")
-                self.update_network_status()
-            else:
-                print(f"[WARN] 自动连接失败: {msg}")
-                self.network_mode_label.setText("● 连接失败（自动重试中...）")
-                self.network_mode_label.setStyleSheet("""
-                    QLabel {
-                        color: #EF4444;
-                        font-size: 11px;
-                        font-weight: bold;
-                        padding: 3px;
-                    }
-                """)
-                # 30秒后重试，最多3次
-                self._auto_connect_retry_count = getattr(self, '_auto_connect_retry_count', 0) + 1
-                if self._auto_connect_retry_count <= 3:
-                    QTimer.singleShot(30000, self.auto_connect_client)
-                else:
-                    print("[WARN] 自动连接重试次数已用完，请手动重连")
-                    self.network_mode_label.setText("● 自动连接失败")
-                    self._auto_connect_retry_count = 0
-        except Exception as e:
-            print(f"[ERROR] 自动连接失败: {e}")
-
     def open_server_settings(self):
         """打开服务器设置对话框"""
         dialog = ServerSettingsDialog(self)
         dialog.exec_()
-        # 保持 dialog 引用，防止被垃圾回收时连带销毁 server_thread
-        self._server_settings_dialog = dialog
+        # 关闭对话框后获取服务器状态并更新显示
         self._server_thread = dialog.server_thread
         self._is_server_running = dialog.is_server_running
         self.update_network_status()
-        # 如果切换到服务器模式，从服务器加载数据并启动同步
-        if self.network.is_server_mode:
-            self._refresh_data_from_server()
-            self._start_sync_timer()
-        else:
-            self._stop_sync_timer()
 
     def update_network_status(self):
         """更新侧边栏网络状态显示"""
@@ -5777,163 +5432,50 @@ class TCLApplication(QMainWindow):
             """)
             self.server_address_label.setText("")
 
-    # ==================== 实时同步 ====================
-
-    def _start_sync_timer(self):
-        """启动服务器数据同步轮询"""
-        if not self._sync_timer.isActive():
-            self._last_sync_update = None
-            self._last_batch_count = None
-            self._sync_timer.start(self._sync_interval)
-
-    def _stop_sync_timer(self):
-        """停止同步轮询"""
-        if self._sync_timer.isActive():
-            self._sync_timer.stop()
-        self._last_sync_update = None
-        self._last_batch_count = None
-
-    def _check_server_sync(self):
-        """检查服务器数据是否有变更，有变更则自动刷新"""
-        if not self.network.is_server_mode or not self.network.server_url:
-            self._stop_sync_timer()
-            return
-
-        result, error = self.network.check_server_changes()
-        if error or not result:
-            return
-
-        current_update = result.get('last_db_update', '从未')
-        current_batch_count = result.get('batch_import_count', 0)
-
-        if self._last_sync_update is None:
-            self._last_sync_update = current_update
-            self._last_batch_count = current_batch_count
-            return
-
-        db_changed = current_update != self._last_sync_update
-        batch_changed = current_batch_count != self._last_batch_count
-
-        if db_changed or batch_changed:
-            self._last_sync_update = current_update
-            self._last_batch_count = current_batch_count
-            self._refresh_data_from_server()
-
-    def _refresh_data_from_server(self):
-        """从服务器加载数据，与本地合并后刷新UI"""
-        try:
-            # 加载数据库数据
-            server_headers, server_data, s_error = self.network.load_db_data()
-            local_headers, local_data = self._load_db_data_local()
-            merged_h, merged_d = self._merge_data(server_headers, server_data, local_headers, local_data)
-            if merged_d:
-                self.db_all_data = merged_d
-                self.db_original_data = merged_d
-                self.current_db_headers = merged_h
-                self.refresh_db_table()
-                self.db_info_label.setText(f"服务器数据已同步 - 共 {len(merged_d)} 条")
-                self._save_db_data_local(merged_h, merged_d)
-            # 加载批量导入数据
-            bs_headers, bs_data, bs_error = self.network.load_batch_import_data()
-            bl_headers, bl_data = self._load_batch_import_data_local()
-            bm_h, bm_d = self._merge_data(bs_headers, bs_data, bl_headers, bl_data)
-            if bm_d:
-                self.batch_import_headers = bm_h
-                self.batch_import_data = bm_d
-                self.batch_refresh_table()
-                if hasattr(self, 'batch_info_label'):
-                    self.batch_info_label.setText(f"服务器数据已同步 - 共 {len(bm_d)} 条")
-                self._save_batch_import_data_local(bm_h, bm_d)
-        except Exception as e:
-            print(f"[WARN] 自动同步刷新失败: {e}")
-
-    def _merge_data(self, server_headers, server_data, local_headers, local_data):
-        """合并服务器和本地数据，以物料号为主键去重"""
-        server_data = server_data or []
-        local_data = local_data or []
-        server_headers = server_headers or []
-        local_headers = local_headers or []
-
-        # 合并表头
-        merged_headers = list(server_headers)
-        for h in local_headers:
-            if h and h not in merged_headers:
-                merged_headers.append(h)
-
-        # 以物料号为键构建服务器数据字典
-        server_dict = {}
-        for row in server_data:
-            key = str(row.get('物料号', '') or '').strip()
-            if key:
-                server_dict[key] = row
-
-        # 将本地数据合并到服务器数据中
-        for row in local_data:
-            key = str(row.get('物料号', '') or '').strip()
-            if key and key not in server_dict:
-                server_dict[key] = row
-
-        merged_data = list(server_dict.values())
-        return merged_headers, merged_data
-
     # ==================== 数据保存/加载 - 支持双模式 ====================
-
-    def _save_with_mode(self, headers, data, server_save, local_save, fallback_message):
-        if self.network.is_server_mode:
-            success, msg = server_save(headers, data)
-            if not success:
-                QMessageBox.warning(self, "服务器错误", fallback_message.format(msg=msg))
-                local_save(headers, data)
-        else:
-            local_save(headers, data)
-
-    def _load_with_mode(self, server_load, local_load, fallback_message, silent=False):
-        if self.network.is_server_mode:
-            headers, data, error = server_load()
-            if error:
-                if not silent:
-                    QMessageBox.warning(self, "服务器错误", fallback_message.format(error=error))
-                return local_load()
-            return headers, data
-        return local_load()
 
     def save_db_data_with_mode(self, headers, data):
         """根据当前模式保存数据库数据（本地或服务器）"""
-        self._save_with_mode(
-            headers,
-            data,
-            self.network.save_db_data,
-            self._save_db_data_local,
-            "保存到服务器失败:\n{msg}\n\n数据将尝试保存到本地"
-        )
+        if self.network.is_server_mode:
+            success, msg = self.network.save_db_data(headers, data)
+            if not success:
+                QMessageBox.warning(self, "服务器错误", f"保存到服务器失败:\n{msg}\n\n数据将尝试保存到本地")
+                # 失败时回退到本地
+                self._save_db_data_local(headers, data)
+        else:
+            self._save_db_data_local(headers, data)
 
-    def load_db_data_with_mode(self, silent=False):
+    def load_db_data_with_mode(self):
         """根据当前模式加载数据库数据（本地或服务器）"""
-        return self._load_with_mode(
-            self.network.load_db_data,
-            self._load_db_data_local,
-            "从服务器加载数据失败:\n{error}\n\n将加载本地数据",
-            silent=silent
-        )
+        if self.network.is_server_mode:
+            headers, data, error = self.network.load_db_data()
+            if error:
+                QMessageBox.warning(self, "服务器错误", f"从服务器加载数据失败:\n{error}\n\n将加载本地数据")
+                return self._load_db_data_local()
+            return headers, data
+        else:
+            return self._load_db_data_local()
 
     def save_batch_import_data_with_mode(self, headers, data):
         """根据当前模式保存批量导入数据（本地或服务器）"""
-        self._save_with_mode(
-            headers,
-            data,
-            self.network.save_batch_import_data,
-            self._save_batch_import_data_local,
-            "保存到服务器失败:\n{msg}"
-        )
+        if self.network.is_server_mode:
+            success, msg = self.network.save_batch_import_data(headers, data)
+            if not success:
+                QMessageBox.warning(self, "服务器错误", f"保存到服务器失败:\n{msg}")
+                self._save_batch_import_data_local(headers, data)
+        else:
+            self._save_batch_import_data_local(headers, data)
 
-    def load_batch_import_data_with_mode(self, silent=False):
+    def load_batch_import_data_with_mode(self):
         """根据当前模式加载批量导入数据（本地或服务器）"""
-        return self._load_with_mode(
-            self.network.load_batch_import_data,
-            self._load_batch_import_data_local,
-            "从服务器加载数据失败:\n{error}",
-            silent=silent
-        )
+        if self.network.is_server_mode:
+            headers, data, error = self.network.load_batch_import_data()
+            if error:
+                QMessageBox.warning(self, "服务器错误", f"从服务器加载数据失败:\n{error}")
+                return self._load_batch_import_data_local()
+            return headers, data
+        else:
+            return self._load_batch_import_data_local()
 
 
 if __name__ == "__main__":
@@ -5941,13 +5483,6 @@ if __name__ == "__main__":
     from PyQt5.QtWidgets import QApplication
 
     app = QApplication(sys.argv)
-
-    # 单实例检查：防止重复启动
-    _shared_mem = QSharedMemory("TCL_Material_Tracker_SingleInstance")
-    if not _shared_mem.create(1):
-        QMessageBox.warning(None, "TCL表格比对系统", "程序已在运行中，请勿重复打开。")
-        sys.exit(0)
-
     window = TCLApplication()
     window.show()
     sys.exit(app.exec_())

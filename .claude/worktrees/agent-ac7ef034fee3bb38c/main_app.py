@@ -23,7 +23,6 @@ def get_app_dir():
         # 打包后使用 AppData 目录
         app_data = os.path.join(os.environ.get('APPDATA', os.path.expanduser('~')), 'TCL表格比对')
         os.makedirs(app_data, exist_ok=True)
-        os.makedirs(os.path.join(app_data, "data"), exist_ok=True)
         return app_data
     return os.path.dirname(os.path.abspath(__file__))
 
@@ -961,55 +960,6 @@ class ServerSettingsDialog(QDialog):
         self._update_clients_timer.timeout.connect(self._update_online_clients)
         self._update_clients_timer.start(5000)  # 每5秒更新
         self._update_online_clients()
-
-        # 启动服务器后，将本地数据同步到服务器
-        self._upload_local_data_to_server()
-
-    def _upload_local_data_to_server(self):
-        """启动服务器后，将本地数据上传到服务器"""
-        try:
-            parent = self.parent()
-            if not parent or not hasattr(parent, 'network'):
-                return
-
-            import requests
-            port = self.port_edit.text().strip()
-            server_url = f"http://127.0.0.1:{port}"
-
-            # 上传数据库数据
-            if hasattr(parent, 'db_all_data') and parent.db_all_data:
-                headers = parent.current_db_headers if hasattr(parent, 'current_db_headers') else []
-                data = parent.db_all_data
-                try:
-                    resp = requests.post(
-                        f"{server_url}/api/db/data",
-                        json={'headers': headers, 'data': data},
-                        headers={'X-Client-ID': 'server-host'},
-                        timeout=5
-                    )
-                    if resp.json().get('success'):
-                        print(f"[INFO] 已同步 {len(data)} 条数据库数据到服务器")
-                except Exception as e:
-                    print(f"[WARN] 同步数据库数据失败: {e}")
-
-            # 上传批量导入数据
-            if hasattr(parent, 'batch_import_data') and parent.batch_import_data:
-                headers = parent.batch_import_headers if hasattr(parent, 'batch_import_headers') else []
-                data = parent.batch_import_data
-                try:
-                    resp = requests.post(
-                        f"{server_url}/api/batch/data",
-                        json={'headers': headers, 'data': data},
-                        headers={'X-Client-ID': 'server-host'},
-                        timeout=5
-                    )
-                    if resp.json().get('success'):
-                        print(f"[INFO] 已同步 {len(data)} 条批量导入数据到服务器")
-                except Exception as e:
-                    print(f"[WARN] 同步批量导入数据失败: {e}")
-
-        except Exception as e:
-            print(f"[WARN] 上传本地数据到服务器失败: {e}")
 
     def _on_server_stopped(self):
         """服务器停止回调"""
@@ -2111,7 +2061,7 @@ class TCLApplication(QMainWindow):
                 border-color: #F97316;
             }
         """)
-        self.db_search_edit.setPlaceholderText("输入物料号搜索，多个用空格/逗号/分号分隔\n精确匹配格式：物料号|销售订单|销售订单行号|内需单号")
+        self.db_search_edit.setPlaceholderText("输入物料号精确搜索，多个用逗号分隔\n精确匹配格式：物料号|销售订单|销售订单行号|内需单号")
         self.db_search_edit.textChanged.connect(self.filter_db_data)
 
         import_search_btn = QPushButton("导入搜索条件")
@@ -2546,7 +2496,7 @@ class TCLApplication(QMainWindow):
                 border-color: #F97316;
             }
         """)
-        self.batch_search_edit.setPlaceholderText("输入物料号搜索，多个用空格/逗号/分号分隔")
+        self.batch_search_edit.setPlaceholderText("输入物料号搜索，多个用逗号分隔")
         self.batch_search_edit.textChanged.connect(self.filter_batch_data)
 
         import_batch_search_btn = QPushButton("导入搜索条件")
@@ -3429,9 +3379,6 @@ class TCLApplication(QMainWindow):
         # 服务器模式同时保存到服务器
         if self.network.is_server_mode:
             self.save_db_data_with_mode(headers, data)
-        # 如果本地服务器正在运行，同步数据到服务器
-        elif self._server_thread and self._server_thread.isRunning():
-            self._sync_to_local_server(headers, data)
 
     def _save_db_data_local(self, headers, data):
         """本地保存数据库数据"""
@@ -3442,38 +3389,6 @@ class TCLApplication(QMainWindow):
                 json.dump(save_data, f, ensure_ascii=False, indent=2)
         except Exception as e:
             print(f"本地保存数据失败: {e}")
-
-    def _sync_to_local_server(self, headers, data):
-        """同步数据到本地运行的服务器"""
-        try:
-            import requests
-            port = self._server_thread.port if hasattr(self._server_thread, 'port') else 5000
-            resp = requests.post(
-                f"http://127.0.0.1:{port}/api/db/data",
-                json={'headers': headers, 'data': data},
-                headers={'X-Client-ID': 'server-host'},
-                timeout=3
-            )
-            if resp.json().get('success'):
-                print(f"[INFO] 已同步 {len(data)} 条数据到本地服务器")
-        except Exception as e:
-            print(f"[WARN] 同步到本地服务器失败: {e}")
-
-    def _sync_batch_to_local_server(self, headers, data):
-        """同步批量导入数据到本地运行的服务器"""
-        try:
-            import requests
-            port = self._server_thread.port if hasattr(self._server_thread, 'port') else 5000
-            resp = requests.post(
-                f"http://127.0.0.1:{port}/api/batch/data",
-                json={'headers': headers, 'data': data},
-                headers={'X-Client-ID': 'server-host'},
-                timeout=3
-            )
-            if resp.json().get('success'):
-                print(f"[INFO] 已同步 {len(data)} 条批量导入数据到本地服务器")
-        except Exception as e:
-            print(f"[WARN] 同步批量导入数据到本地服务器失败: {e}")
 
     def _load_db_data_local(self):
         """本地加载数据库数据，返回 (headers, data)"""
@@ -3555,8 +3470,6 @@ class TCLApplication(QMainWindow):
         self._save_batch_import_data_local(headers, data)
         if self.network.is_server_mode:
             self.save_batch_import_data_with_mode(headers, data)
-        elif self._server_thread and self._server_thread.isRunning():
-            self._sync_batch_to_local_server(headers, data)
 
     def load_batch_import_data(self):
         """加载批量导入数据（服务器模式从服务器加载，本地模式从文件加载）"""
@@ -3647,8 +3560,7 @@ class TCLApplication(QMainWindow):
 
         headers = self.current_db_headers
 
-        import re
-        keywords = [k.strip() for k in re.split(r'[,;，；\s]+', text) if k.strip()]
+        keywords = [k.strip() for k in text.split(',') if k.strip()]
         if not keywords:
             data = self.db_all_data
             self.db_search_keywords = []
@@ -5095,8 +5007,7 @@ class TCLApplication(QMainWindow):
         if not hasattr(self, 'batch_import_data') or not self.batch_import_data:
             return
 
-        import re
-        keywords = [k.strip() for k in re.split(r'[,;，；\s]+', text) if k.strip()]
+        keywords = [k.strip() for k in text.split(',') if k.strip()]
 
         if not keywords:
             # 没有搜索关键词，显示所有数据
@@ -5820,61 +5731,26 @@ class TCLApplication(QMainWindow):
             self._refresh_data_from_server()
 
     def _refresh_data_from_server(self):
-        """从服务器加载数据，与本地合并后刷新UI"""
+        """从服务器重新加载数据并刷新UI"""
         try:
             # 加载数据库数据
-            server_headers, server_data, s_error = self.network.load_db_data()
-            local_headers, local_data = self._load_db_data_local()
-            merged_h, merged_d = self._merge_data(server_headers, server_data, local_headers, local_data)
-            if merged_d:
-                self.db_all_data = merged_d
-                self.db_original_data = merged_d
-                self.current_db_headers = merged_h
+            headers, data, error = self.network.load_db_data()
+            if not error and data:
+                self.db_all_data = data
+                self.db_original_data = data
+                self.current_db_headers = headers
                 self.refresh_db_table()
-                self.db_info_label.setText(f"服务器数据已同步 - 共 {len(merged_d)} 条")
-                self._save_db_data_local(merged_h, merged_d)
+                self.db_info_label.setText(f"服务器数据已同步 - 共 {len(data)} 条")
             # 加载批量导入数据
-            bs_headers, bs_data, bs_error = self.network.load_batch_import_data()
-            bl_headers, bl_data = self._load_batch_import_data_local()
-            bm_h, bm_d = self._merge_data(bs_headers, bs_data, bl_headers, bl_data)
-            if bm_d:
-                self.batch_import_headers = bm_h
-                self.batch_import_data = bm_d
+            b_headers, b_data, b_error = self.network.load_batch_import_data()
+            if not b_error and b_data:
+                self.batch_import_headers = b_headers
+                self.batch_import_data = b_data
                 self.batch_refresh_table()
                 if hasattr(self, 'batch_info_label'):
-                    self.batch_info_label.setText(f"服务器数据已同步 - 共 {len(bm_d)} 条")
-                self._save_batch_import_data_local(bm_h, bm_d)
+                    self.batch_info_label.setText(f"服务器数据已同步 - 共 {len(b_data)} 条")
         except Exception as e:
             print(f"[WARN] 自动同步刷新失败: {e}")
-
-    def _merge_data(self, server_headers, server_data, local_headers, local_data):
-        """合并服务器和本地数据，以物料号为主键去重"""
-        server_data = server_data or []
-        local_data = local_data or []
-        server_headers = server_headers or []
-        local_headers = local_headers or []
-
-        # 合并表头
-        merged_headers = list(server_headers)
-        for h in local_headers:
-            if h and h not in merged_headers:
-                merged_headers.append(h)
-
-        # 以物料号为键构建服务器数据字典
-        server_dict = {}
-        for row in server_data:
-            key = str(row.get('物料号', '') or '').strip()
-            if key:
-                server_dict[key] = row
-
-        # 将本地数据合并到服务器数据中
-        for row in local_data:
-            key = str(row.get('物料号', '') or '').strip()
-            if key and key not in server_dict:
-                server_dict[key] = row
-
-        merged_data = list(server_dict.values())
-        return merged_headers, merged_data
 
     # ==================== 数据保存/加载 - 支持双模式 ====================
 
