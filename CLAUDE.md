@@ -20,76 +20,23 @@ py -3.8 -m PyInstaller scripts\build_win7_final.spec --clean --noconfirm  # Buil
 py -3.8 scripts\setup_cx_freeze.py build                # Build for Windows 7 (cx_Freeze, alternative)
 ```
 
-No virtual environment or formal test suite. Ad-hoc test scripts exist in `tests/` directory but no pytest/unittest framework.
+### Testing
 
-## Directory Structure
+No formal test framework (pytest/unittest) is configured. Ad-hoc test scripts exist in `tests/` directory. Run individual tests with:
 
-```
-TCL-5-11/
-├── main_app.py              # 主程序入口
-├── database.py              # 数据库模块
-├── excel_processor.py       # Excel处理模块
-├── network_manager.py       # 网络管理模块
-├── server.py                # 服务器模块
-├── server_db.py             # 服务器数据库模块
-├── version.py               # 版本信息
-├── CLAUDE.md                # 项目说明
-├── .gitignore               # Git配置
-│
-├── scripts/                 # 构建和启动脚本
-│   ├── build_win7_final.spec
-│   ├── setup_cx_freeze.py
-│   ├── installer.iss
-│   ├── runtime_fix_win7.py
-│   ├── win7_launcher.py
-│   ├── 打包Win7版.bat
-│   ├── 启动.bat
-│   └── start_server.bat
-│
-├── tests/                   # 测试脚本
-│   ├── test_excel_processor_workflow.py
-│   ├── test_persistence_mode.py
-│   └── test_server_responses.py
-│
-├── docs/                    # 文档和图片
-│   ├── 用户操作指南.md
-│   └── 数据流.png
-│
-├── resources/               # 资源文件
-│   ├── icon.ico             # 应用图标
-│   ├── icon.png             # 应用图标
-│   ├── vc_redist.x64.exe    # VC++运行库
-│   └── python-3.8.10-embed-amd64.zip  # Python嵌入包
-│
-├── requirements/            # 依赖配置
-│   ├── requirements_full.txt    # 完整依赖清单
-│   ├── requirements_build.txt   # 打包依赖
-│   ├── requirements_server.txt  # 服务器依赖
-│   └── requirements_win7.txt    # Win7兼容依赖
-│
-├── data/                    # 运行时数据（不提交git）
-│   ├── *.db                 # 数据库文件
-│   └── *.json               # 配置缓存
-│
-├── Output/                  # 安装包输出
-├── build/                   # PyInstaller构建缓存
-└── dist/                    # PyInstaller输出
+```bash
+py -3.8 tests\test_excel_processor_workflow.py
+py -3.8 tests\test_persistence_mode.py
+py -3.8 tests\test_server_responses.py
 ```
 
-### File Generation Rules
+### Dependencies
 
-**构建产物** → `dist/` 和 `build/` 目录（PyInstaller自动生成）
-**安装包** → `Output/` 目录（Inno Setup生成）
-**测试脚本** → `tests/` 目录
-**文档和图片** → `docs/` 目录
-**资源文件** → `resources/` 目录（图标、运行库、Python包）
-**依赖配置** → `requirements/` 目录
-**运行时数据** → `data/` 目录（配置缓存、数据库文件）
-**构建脚本** → `scripts/` 目录
-
-## Dependencies
-
-Core: **PyQt5**, **openpyxl**. Optional: **Flask**, **flask-cors**, **requests** (server mode). Tab 7 uses **pandas** (inline import, not in requirements).
+```bash
+py -3.8 -m pip install -r requirements\requirements_full.txt      # Full dependencies
+py -3.8 -m pip install -r requirements\requirements_win7.txt      # Win7 compatible only
+py -3.8 -m pip install -r requirements\requirements_server.txt    # Server mode only
+```
 
 ## Architecture
 
@@ -174,14 +121,16 @@ Unmatched → `其他`; null descriptions → `未分类`.
 
 Server database (`tcl_server_data.db`) stores the same logical data as JSON blobs in `db_data`, `batch_import_data`, `shipment_data`, `config`, `operation_log` tables.
 
-## Cleanup Notes
+## File Generation Rules
 
-- `tests/` directory — ad-hoc test scripts, not a formal test suite
-- `scripts/` directory — build scripts and launchers for Win7 compatibility
-- `docs/` directory — user documentation and diagrams
-- `resources/` directory — large resource files (VC++ redistributable, Python embed package)
-- `requirements/` directory — dependency configuration files for different build scenarios
-- `data/` directory — runtime data (databases, config caches), not tracked in git
+**构建产物** → `dist/` 和 `build/` 目录（PyInstaller自动生成）
+**安装包** → `Output/` 目录（Inno Setup生成）
+**测试脚本** → `tests/` 目录
+**文档和图片** → `docs/` 目录
+**资源文件** → `resources/` 目录（图标、运行库、Python包）
+**依赖配置** → `requirements/` 目录
+**运行时数据** → `data/` 目录（配置缓存、数据库文件）
+**构建脚本** → `scripts/` 目录
 
 ## Coding Guidelines
 

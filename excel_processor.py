@@ -103,18 +103,13 @@ class ExcelProcessor:
             item['昨天总缺料'] = yesterday_total
             item['今天总缺料'] = today_total
             item['本次送货数量'] = shipment_qty
+            item['供应商在途量'] = transit_qty
 
-            # 数据1：今天总缺料 - 供应商在途量
-            item['数据1'] = today_total - transit_qty
-
-            # 数据2：昨天总缺料 - 本次送货数量（相同才减，不同引用昨天总缺料）
-            if yesterday_total == shipment_qty:
-                item['数据2'] = 0
-            else:
-                item['数据2'] = yesterday_total
-
-            # 变化量：数据1 - 数据2
-            item['变化量'] = item['数据1'] - item['数据2']
+            # 计算真实出货量和新增数量
+            real_shipment, new_qty = self._calc_real_shipment_and_new_qty(
+                transit_qty, shipment_qty, yesterday_total, today_total)
+            item['真实出货量'] = real_shipment
+            item['新增数量'] = new_qty
 
             diff_result.append(item)
 
@@ -126,28 +121,49 @@ class ExcelProcessor:
                 item['昨天总缺料'] = yesterday_total
                 item['今天总缺料'] = 0
                 item['本次送货数量'] = 0
+                item['供应商在途量'] = transit_qty
 
-                # 数据1：今天总缺料（0） - 供应商在途量
-                item['数据1'] = 0 - transit_qty
-
-                # 数据2：昨天总缺料 - 本次送货数量（0）（相同才减，不同引用昨天总缺料）
-                if yesterday_total == 0:
-                    item['数据2'] = 0
-                else:
-                    item['数据2'] = yesterday_total
-
-                # 变化量：数据1 - 数据2
-                item['变化量'] = item['数据1'] - item['数据2']
+                # 今天不存在，真实出货量=昨天总缺料，新增=0-昨天
+                item['真实出货量'] = yesterday_total
+                item['新增数量'] = 0 - yesterday_total
 
                 diff_result.append(item)
 
         return diff_result
 
+    def _calc_real_shipment_and_new_qty(self, transit_qty, shipment_qty, yesterday_total, today_total):
+        """计算真实出货量和新增数量
+
+        优先级：
+        条件5: 四个值都相同 → 新增数量=0
+        条件1: 供应商在途量 = 本次送货数量 → 真实出货量=昨天总缺料
+        条件2: 供应商在途量 > 本次送货数量 → 真实出货量=昨天总缺料
+        条件3: 昨天总缺料 = 本次送货数量 → 真实出货量=0
+        条件4: 四个值都不相同 → 真实出货量=昨天总缺料
+        """
+        # 条件5：四个值都相同
+        if transit_qty == shipment_qty == yesterday_total == today_total:
+            return 0, 0
+
+        # 条件1：供应商在途量 = 本次送货数量
+        if transit_qty == shipment_qty:
+            return yesterday_total, today_total - yesterday_total
+
+        # 条件2：供应商在途量 > 本次送货数量
+        if transit_qty > shipment_qty:
+            return yesterday_total, today_total - yesterday_total
+
+        # 条件3：昨天总缺料 = 本次送货数量
+        if yesterday_total == shipment_qty:
+            return 0, today_total - 0
+
+        # 条件4：四个值都不相同
+        return yesterday_total, today_total - yesterday_total
+
     def sort_diff_data(self, diff_data):
         def sort_key(item):
-            change_value = item['变化量']
-            is_red_change = 1 if change_value != item['今天总缺料'] else 0
-            return (is_red_change, -change_value)
+            new_qty = item['新增数量']
+            return (-new_qty,)
 
         return sorted(diff_data, key=sort_key)
 
@@ -202,7 +218,7 @@ class ExcelProcessor:
             wb.save(output_path)
             return output_path
 
-        priority_headers = ['序号', '物料号', '供应商在途量', '昨天总缺料', '今天总缺料', '数据1', '数据2', '变化量', '本次送货数量', '物料描述', '供方',
+        priority_headers = ['序号', '物料号', '供应商在途量', '昨天总缺料', '今天总缺料', '本次送货数量', '真实出货量', '新增数量', '物料描述', '供方',
                            '异常', '备注', '销售订单', '销售订单行号', '内需单号']
 
         all_fields = []
@@ -263,9 +279,9 @@ class ExcelProcessor:
                         cell.fill = highlight_fill
                         cell.font = highlight_font
 
-                elif header == '变化量':
-                    change_value = item.get('变化量', 0)
-                    if change_value != item.get('今天总缺料', 0):
+                elif header == '新增数量':
+                    new_qty = item.get('新增数量', 0)
+                    if new_qty < 0:
                         cell.font = red_font
 
                 elif header == '供应商在途量':
@@ -287,9 +303,8 @@ class ExcelProcessor:
             '物料号': 18,
             '昨天总缺料': 14,
             '今天总缺料': 14,
-            '变化量': 10,
-            '数据1': 12,
-            '数据2': 12,
+            '真实出货量': 12,
+            '新增数量': 10,
             '本次送货数量': 14,
             '供应商在途量': 15,
             '物料描述': 60,

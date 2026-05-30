@@ -11,7 +11,7 @@
 ; ============================================
 
 #define MyAppName "TCL表格比对"
-#define MyAppVersion "1.0.8"
+#define MyAppVersion "1.0.9"
 #define MyAppPublisher "TCL"
 #define MyAppExeName "TCL表格比对.exe"
 

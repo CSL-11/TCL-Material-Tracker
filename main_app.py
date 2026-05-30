@@ -2812,7 +2812,7 @@ class TCLApplication(QMainWindow):
             for item in diff_data:
                 self.result_text.append(
                     f"物料号: {item['物料号']}, 销售订单: {item.get('销售订单', '')}, "
-                    f"本次送货: {item.get('本次送货数量', 0)}, 变化: {item['变化量']}"
+                    f"本次送货: {item.get('本次送货数量', 0)}, 新增: {item.get('新增数量', 0)}"
                 )
 
             timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
